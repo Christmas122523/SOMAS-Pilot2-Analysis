@@ -1,0 +1,292 @@
+---
+title: "EFA"
+author: "Matt Dunham"
+date: "3/1/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(warnings = FALSE)
+
+# https://bookdown.org/yihui/rmarkdown-cookbook/font-color.html
+colorize <- function(x, color) {
+  if (knitr::is_latex_output()) {
+    sprintf("\\textcolor{%s}{%s}", color, x)
+  } else if (knitr::is_html_output()) {
+    sprintf("<span style='color: %s;'>%s</span>", color,
+            x)
+  } else x
+}
+
+set.seed(1603)
+
+```
+
+```{r packages}
+library("readxl")
+library("lavaan")
+library("semPlot") 
+library("kableExtra")
+library("psych")
+library("semPlot")
+library("semTools")
+library("nFactors")
+library("ids")
+library("WrightMap")
+library("ggplot2")
+library("reshape2")
+library("RColorBrewer")
+
+library("tidyverse")
+
+
+
+```
+
+# Factor Analysis
+
+For Factor Analysis, we first need to determine the appropriate number of factor to use. In order to accomplish this, let us perform Parallel Analysis.
+
+## Parallel Analysis
+
+For the first part of Parallel Analysis, we will obtain eigenvalues from our data. Eigenvalues can show us the appropriate number of factors we have in our data, and Exploratory Factor Analysis can show us which questions are loading onto which factors.
+
+```{r}
+
+load("../data-cleaning/data/deidentified/s-somas_pilot2_data-rta-deidentified-20220310.Rdata")
+
+```
+
+
+```{r}
+summary(data_deidentified_rta_imp$Age) 
+table(data_deidentified_rta_imp$Age)
+
+table(data_deidentified_rta_imp$Gender) / 2535
+
+table(data_deidentified_rta_imp$Student) / 2535
+
+table(data_deidentified_rta_imp$`First_Gen?`) / 2535
+
+sum(table(data_deidentified_rta_imp$Gender)) - 2535
+
+sum(table(data_deidentified_rta_imp$Student))
+
+table(data_deidentified_rta_imp$`First_Gen?`)
+
+#table(data_full_rta_imp$Race_Origin) / 2546
+```
+
+```{r}
+
+### We now will generate a numeric matrix of the data for each group. We must have a numeric matrix when calculating eigenvalues, but NOT when running the EFA. Eigenvalues can show us the appropriate number of factors, EFA will load the questions onto the factors (two seperate analyses).
+
+matrix <- apply(as.matrix(data_scales_rta_imp), 2, as.numeric) %>% ### Group 1 numeric matrix
+  cor(na.omit(.)) ### Generating correlations between each variable as these are used in the generation of eigen values.
+### Calculating the eigen values for each group. These values will be used for our parallel analysis and scree plot generation
+
+eigen <- eigen(matrix)$values ### Group 1 eigen values
+
+
+```
+
+## Scree Plots
+
+Now that we have obtained our eigen values for group 1 and group 2, we can move forward with the rest of parallel analysis and scree plot generation. 
+
+Scree plot generation can help us visualize our eigen values and determine the number of factors we have in our data. When generating these scree plots, contrary to the eigenvalue generation, we will be using the raw data and not a numeric matrix. 
+
+### PA
+
+```{r message=FALSE, warning=FALSE}
+
+### We now will conduct parallel analysis to determine to appropriate number of factors for each of our groups. Parallel analysis can be done in a variety of ways, and for our case we will be plotting our eigen values on a scree plot, as well as geneating a scree plot from the raw data (which will in itself use eigenvalues, but has potential for other data manipulation within the fuction)
+
+### Important note about our centile selection: Glorfeld 1995 & Hayton 2004 suggest a cent=.95, which is a more conservative approach. Parallel analysis tends to overestimate the number of factors, so we should consider using .95
+
+### Hayton suggest using both average and 0.95. When using cent .95, we obtain 4 factors, and for .05, we obtain 5. We should stick with 0.95 to be more conservative and not overestimate the amount of factors we may have.
+
+### We check this for both parallel and fa.parallel function and they yieled similar results when comparing the two. Sticking with .95 for both.
+
+
+##### Since scree plots deal with simulated data, when using cent=0.95, we are obtaining 4 or 5 factors (depedent on the simulation results). 
+
+
+### Parallel Analysis using cent=0.95
+parallel1_1 <- parallel(subject=nrow(data_scales_rta_imp), var=ncol(matrix), rep=100, cent=0.95) ### Performing the Parallel Analysis with 100 repetitions and a centile of .95 for a conservative estimate.
+
+##Alana's scree plot
+
+#Create data frame with observed and simulated eigenvalues
+obs <- data.frame(eigen)
+#add columns for type, number
+obs$type = c('Observed Data') ### creating column called observed data
+obs$num = c(1:length(data_scales_rta_imp)) ### Putting the number of items in our data set as a column names num
+colnames(obs) = c('eigenvalue', 'type', 'num') ### Renaming column names to more relavent names
+
+sim <- data.frame(parallel1_1$eigen$qevpea)### Extracting simulated eigen values for group 1
+sim$type <- c('Simulated Data') ### Adding simulated eigen values to the data frame 
+sim$num <- c(1:length(data_scales_rta_imp)) ### Adding a column for the number of variables we have
+colnames(sim) = c('eigenvalue', 'type', 'num') ### Renaming columns so they are more relavent and match names with the obs data.
+
+screevals <- rbind(obs, sim) ### Binding columns together
+
+##APA Theme. This is useful for publication sake.
+apatheme=theme_bw()+
+theme(panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(),
+panel.background = element_blank(),
+panel.border = element_blank(),
+text=element_text(family='Arial'),
+legend.title=element_blank(),
+legend.position=c(.7,.8),
+axis.line.x = element_line(color='black'),
+axis.line.y = element_line(color='black'))
+
+#Create the Plot
+#Use data from eigendat. Map number of factors to x-axis, eigenvalue to y-axis, and give different data point shapes depending on whether eigenvalue is observed or simulated
+p3 <- ggplot(screevals, aes(x=num, y=eigenvalue, shape=type)) +
+  #Add lines connecting data points
+geom_line(size=.4)+
+ggtitle("Scree Plot of Eigenvalues") +
+  #Add the data points.
+geom_point(size=1)+
+  #Label the y-axis 'Eigenvalue'
+scale_y_continuous(name='Eigenvalue')+
+  #Label the x-axis 'Factor Number', and ensure that it ranges from 1-max # of factors,     increasing by one with each 'tick' mark.
+scale_x_continuous(name='Factor Number', limits=c(1, length(data_scales_rta_imp)))+
+  #Manually specify the different shapes to use for actual and simulated data, in this case, white and black circles.
+scale_shape_manual(values=c(16,1)) +
+  #Add vertical line indicating parallel analysis suggested max # of factors to retain
+#geom_vline(xintercept = 2, linetype = 'dashed')+
+  #apa-formatting theme
+apatheme +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+#Call the plot
+p3
+
+ggsave('scree_group1_larger.png', width=5, height=3, unit='in', dpi=300) ### Saves the scree plot as a .png
+
+```
+
+From this scree plot, we are seeing that we should extract 9 factors from our data. We will keep this in mind when moving to EFA.
+
+We will now load our variables onto the amount of factors we obtained from Parallel Analysis.
+
+## Skew and Kurtosis
+
+Before we go ahead with EFA, we will check skew and kurtosis to see if we are horribly violating our normality assumptions. For similar preseasons why we visualized our data so indepthly, the normality violations of our data can determine possible limitations with EFA arguments.
+
+Violations follow these stipulations:
+
+* Skew < 3
+* Kurtosis < 10
+
+```{r}
+### Skew and kurtosis
+
+data_scales_rta_imp <- as.data.frame(data_scales_rta_imp) ## for some reason the function is messed up unless you make sure to save the data as a data frame prior to finding them.
+
+max(abs(psych::skew(data_scales_rta_imp)))
+max(abs(psych::kurtosi(data_scales_rta_imp)))
+
+### All other kurtosis values are below 10
+```
+
+# Exploratory Factor Analysis
+
+After Parallel Analysis and determining our maximum skew and kurtosis values, we can move ahead with Exploratory Factor Analysis. EFA will be conducted on each group separately, using what we obtained from parallel analysis, skew and kurtosis generation and our summary statistics.
+
+There are a few functions you can use for EFA. We considered both the fa and factanal functions, but decided to go with the fa function in the end. The factanal function assumes normality (which we could go ahead with since skew and kurtosis are fine), but also limits the arguments we can use in the data. The fa function allows for a more specific EFA argumentation.
+
+Within the fa function, we are performing a promax rotation with a factoring method doing the principal factor solution. Along with this, we are using a polychoric correlation because we have data from a Likert scale, making our data ordinal and not continuous. This requires a polychoric correlation. 
+
+Using the fa function, we looked at two possible outcomes, one with a correction = 0 and one with a correction = 0.5. This correction determines how we should treat empty cells, but in the end did not change our loadings much at all. We went ahead with a correction = 0.
+
+These arguments and function selection are consistent across both the groups.
+
+## Sorting Method
+
+We also will be printing out two versions of the loadings for each group: one where the variables are ordered (designed to show how well constructs are holding up), and another where the loadings are ordered by magnitude and factor (where we can see what the new constructs are looking like). Visualizing these loadings in these two different ways can help us when it comes to interpreting our EFA results and making decisions about question wording and new hypothesized constructs.
+
+### Factor Analysis
+
+For group 1, we will be conducting a 5 factor EFA. We are using 5 factors as this is what we obtained from our scree plot generation when looking at cent = 0.05. We may expect to see one factor will very few loadings since we obtained 4 factors when cent = 0.95. If this is the case, we can look at 4 factors in the future. 
+
+**8 Factor Model**
+
+```{r}
+### We will run an EFA using the number of factors we obtained from parallel analysis. We obtained 5 factor from both parallel analysis methods, so no let us load our factor loadings onto the factors themselves.
+
+### We will cut off the factors at 0.4 as this is what we consider significant.
+
+### fa function will have two continuity correction to test.
+
+fa8_1 <- fa(r = data_scales_rta_imp, nfactors = 8, rotate="promax", fm="pa", cor="poly", correct=0) ### correct = 0
+print(fa8_1$loadings, cutoff=0.4) ### printing out results.
+
+sorted8_1 <- unclass(fa.sort(fa8_1)) ### Unclass to determine where the loadings are located and extract them
+
+sorted8_1 <- sorted8_1$loadings ### Pulling our loadings
+
+print(sorted8_1, cutoff=0.4) ### Printing the sorted loadings with a cutoff of 0.4.
+```
+
+**9 Factor Model**
+
+```{r}
+### We will run an EFA using the number of factors we obtained from parallel analysis. We obtained 5 factor from both parallel analysis methods, so no let us load our factor loadings onto the factors themselves.
+
+### We will cut off the factors at 0.4 as this is what we consider significant.
+
+### fa function will have two continuity correction to test.
+
+fa9_1 <- fa(r = data_scales_rta_imp, nfactors = 9, rotate="promax", fm="pa", cor="poly", correct=0) ### correct = 0
+print(fa9_1$loadings, cutoff=0.4) ### printing out results.
+
+sorted9_1 <- unclass(fa.sort(fa9_1)) ### Unclass to determine where the loadings are located and extract them
+
+sorted9_1 <- sorted9_1$loadings ### Pulling our loadings
+
+print(sorted9_1, cutoff=0.4) ### Printing the sorted loadings with a cutoff of 0.4.
+```
+
+```{r}
+### We will run an EFA using the number of factors we obtained from parallel analysis. We obtained 5 factor from both parallel analysis methods, so no let us load our factor loadings onto the factors themselves.
+
+### We will cut off the factors at 0.4 as this is what we consider significant.
+
+### fa function will have two continuity correction to test.
+
+#fa8_2 <- fa(r = data_scales_rta, nfactors = 8, rotate="promax", fm="pa", cor="poly", correct=0) ### correct = 0
+#print(fa5_2$loadings, cutoff=0.4) ### printing out results.
+
+#sorted8_2 <- unclass(fa.sort(fa8_2)) ### Unclass to determine where the loadings are located and extract them
+
+#sorted8_2 <- sorted8_2$loadings ### Pulling our loadings
+
+#print(sorted8_2, cutoff=0.4) ### Printing the sorted loadings with a cutoff of 0.4.
+```
+
+```{r}
+### We will run an EFA using the number of factors we obtained from parallel analysis. We obtained 5 factor from both parallel analysis methods, so no let us load our factor loadings onto the factors themselves.
+
+### We will cut off the factors at 0.4 as this is what we consider significant.
+
+### fa function will have two continuity correction to test.
+
+#fa9_2 <- fa(r = data_scales_rta, nfactors = 9, rotate="promax", fm="pa", cor="poly", correct=0) ### correct = 0
+#print(fa5_2$loadings, cutoff=0.4) ### printing out results.
+
+#sorted9_2 <- unclass(fa.sort(fa9_2)) ### Unclass to determine where the loadings are located and extract them
+
+#sorted9_2 <- sorted9_2$loadings ### Pulling our loadings
+
+#print(sorted9_2, cutoff=0.4) ### Printing the sorted loadings with a cutoff of 0.4.
+
+```
+

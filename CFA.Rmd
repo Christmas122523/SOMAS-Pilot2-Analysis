@@ -1,0 +1,466 @@
+---
+title: "CFA"
+author: "Matt Dunham & Doug Whitaker"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+knitr::opts_chunk$set(warnings = FALSE)
+
+# https://bookdown.org/yihui/rmarkdown-cookbook/font-color.html
+colorize <- function(x, color) {
+  if (knitr::is_latex_output()) {
+    sprintf("\\textcolor{%s}{%s}", color, x)
+  } else if (knitr::is_html_output()) {
+    sprintf("<span style='color: %s;'>%s</span>", color,
+            x)
+  } else x
+}
+
+set.seed(1603)
+```
+
+```{r packages}
+library("readxl")
+library("MASDERtools")
+library("ltm") # should be loaded by MASDERtools, but this gets rid of error: "Error in gauher("k") : object 'gh' not found"
+library("lavaan")
+library("semPlot")
+library("semTools")
+library("reshape2")
+library("tidyverse")
+
+set.seed(1603)
+
+#data_scales_rta_imp <- read_excel("data/confidential/data_scales_rta_imp_2022-03-10.xlsx")
+load("../data-cleaning/data/deidentified/s-somas_pilot2_data-rta-deidentified-20220310.Rdata")
+
+```
+
+
+# Acknowledgements
+
+* This material is based upon work supported by the National Science Foundation under [Grant No. DUE-2013392](https://www.nsf.gov/awardsearch/showAward?AWD_ID=2013392&HistoricalAwards=false).
+* This analysis is based on work completed by the entire MASDER team. 
+    * Some EFA code based on Matt Dunham's work
+
+All analyses are performed in Microsoft Open R (Microsoft, 2020; R Core Team, 2020) with Intel MKL. The following packages were used:
+
+* `MASDERtools` version `r packageVersion("MASDERtools")`, a custom package for these analyses, which explicitly imports the following packages (some of which should be cited):
+    * IRT packages: `Gifi`, `ltm`, `mirt`
+    * EFA packages: `networkD3` (Sankey diagrams)
+    * Other formatting packages: `gridExtra`, `htmlwidgets`, `htmltools`
+* IRT packages: `ltm`, which - despite being imported by `MASDERtools` - needs to be loaded in this analysis to avoid an error
+* EFA packages: `nFactors`
+* CFA packages: `lavaan`, `semPlot`, `semTools`
+* Other analysis packages: `psych` (for reverse coding, identifying multivariate outliers, etc.)
+* Other miscellaneous packages: `readxl` (for reading data), `kableExtra` (for colour-coding tables)
+
+# Analysis
+
+## CFA
+
+### Full Model
+
+Full Model, no HOF.
+
+```{r cfa_prune_0}
+cfa_string_prune_0 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_3 + Attain_4 + Attain_5 + Attain_6 + Attain_7 + Attain_8 + Attain_9 + Attain_10 + Attain_11 + Attain_12 + Attain_13
+  Cost =~ CostX_1 + + CostX_2 + CostX_3 + CostX_4 + CostX_5 + CostX_6 + CostX_7 + CostX_8 + CostX_9 + CostX_10 + CostX_11 + CostX_12 + CostX_13
+  Difficulty =~ DifficultyX_1 + DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_5 + DifficultyX_6 + DifficultyX_7 + DifficultyX_8 + DifficultyX_9
+  Goal =~ GoalX_1 + GoalX_2 + GoalX_3 + GoalX_4 + GoalX_5 + GoalX_6 + GoalX_7 + GoalX_8 + GoalX_9 + GoalX_10 + GoalX_11 + GoalX_12 + GoalX_13
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_4 + Expectancy_5 + Expectancy_6
+  IntEnj =~ IntEnj_1 + IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_5 + IntEnj_6 + IntEnj_7 + IntEnj_8 + IntEnj_9
+  Utility =~ Utility_1 + Utility_2 + Utility_3 + Utility_4 + Utility_5 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 + Utility_11
+  AcadSC =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_3 + AcadSCX_4 +  AcadSCX_5 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_10 + AcadSCX_11 + AcadSCX_12 + AcadSCX_13 + AcadSCX_14
+'
+cfa_out_prune_0 <- lavaan::cfa(cfa_string_prune_0, data = data_scales_rta_imp, 
+                           ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_0_res}
+cat(cfa_string_prune_0)
+lavaan::fitMeasures(cfa_out_prune_0, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_0)
+#lavaan::modificationIndices(cfa_out_prune_0, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_0)
+
+```
+
+
+### Doug Drop Items
+
+#### Round 1
+
+```{r cfa_prune_1}
+cfa_string_prune_1 <- '
+  Attain =~ Attain_1 + Attain_2 +  Attain_5 + Attain_6 + Attain_7 +  Attain_9 + Attain_11 + Attain_12 + Attain_13
+  TrueCost =~ CostX_1 + CostX_2 + CostX_5 + CostX_7 + CostX_10 + CostX_11 
+  WorthIt =~ CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_12 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  LookSmart =~ GoalX_1 + GoalX_5 + GoalX_6 + GoalX_8 + GoalX_9
+  FearEGO =~ GoalX_2 + GoalX_3 + GoalX_12 + GoalX_13 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_6 + IntEnj_7 + IntEnj_8 + IntEnj_9
+  Employment =~ Utility_1 + Utility_2 + Utility_4 + Utility_6 
+  Personal =~ Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  Learn =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_3 + AcadSCX_4 + AcadSCX_5 +AcadSCX_7 + AcadSCX_8 + AcadSCX_11 + AcadSCX_12
+  SeekHelp =~  AcadSCX_6 + AcadSCX_9 + AcadSCX_13 + AcadSCX_14
+  Cost =~ TrueCost + WorthIt
+  GoalsX =~ LookSmart + FearEGO
+  UtilityV =~ Employment + Personal
+  AcadX =~ Learn + SeekHelp
+'
+cfa_out_prune_1 <- lavaan::cfa(cfa_string_prune_1, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_1_res}
+cat(cfa_string_prune_1)
+lavaan::fitMeasures(cfa_out_prune_1, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_1)
+#lavaan::modificationIndices(cfa_out_prune_1, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_1)
+
+```
+Now we add in STV HOF.
+
+```{r cfa_prune_2}
+cfa_string_prune_2 <- '
+  Attain =~ Attain_1 + Attain_2 +  Attain_5 + Attain_6 + Attain_7 +  Attain_9 + Attain_11 + Attain_12 + Attain_13
+  TrueCost =~ CostX_1 + CostX_2 + CostX_5 + CostX_7 + CostX_10 + CostX_11 
+  WorthIt =~ CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_12 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  LookSmart =~ GoalX_1 + GoalX_5 + GoalX_6 + GoalX_8 + GoalX_9
+  FearEGO =~ GoalX_2 + GoalX_3 + GoalX_12 + GoalX_13 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_6 + IntEnj_7 + IntEnj_8 + IntEnj_9
+  Employment =~ Utility_1 + Utility_2 + Utility_4 + Utility_6 
+  Personal =~ Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  Learn =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_3 + AcadSCX_4 + AcadSCX_5 +AcadSCX_7 + AcadSCX_8 + AcadSCX_11 + AcadSCX_12
+  SeekHelp =~  AcadSCX_6 + AcadSCX_9 + AcadSCX_13 + AcadSCX_14
+  Cost =~ TrueCost + WorthIt
+  GoalsX =~ LookSmart + FearEGO
+  UtilityV =~ Employment + Personal
+  AcadX =~ Learn + SeekHelp
+  STV =~ UtilityV + Cost + Attain + IntEnj
+'
+cfa_out_prune_2 <- lavaan::cfa(cfa_string_prune_2, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_2_res}
+cat(cfa_string_prune_2)
+lavaan::fitMeasures(cfa_out_prune_2, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_2)
+#lavaan::modificationIndices(cfa_out_prune_2, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_2)
+
+```
+
+Now we try to drop all HOF.
+
+```{r cfa_prune_3}
+cfa_string_prune_3 <- '
+  Attain =~ Attain_1 + Attain_2 +  Attain_5 + Attain_6 + Attain_7 +  Attain_9 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 + CostX_2 + CostX_5 + CostX_7 + CostX_10 + CostX_11 + CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_12 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_1 + GoalX_5 + GoalX_6 + GoalX_8 + GoalX_9 + GoalX_2 + GoalX_3 + GoalX_12 + GoalX_13 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_6 + IntEnj_7 + IntEnj_8 + IntEnj_9
+  Utility =~ Utility_1 + Utility_2 + Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_3 + AcadSCX_4 + AcadSCX_5 +AcadSCX_7 + AcadSCX_8 + AcadSCX_11 + AcadSCX_12 + AcadSCX_6 + AcadSCX_9 + AcadSCX_13 + AcadSCX_14
+'
+cfa_out_prune_3 <- lavaan::cfa(cfa_string_prune_3, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_3_res}
+cat(cfa_string_prune_3)
+lavaan::fitMeasures(cfa_out_prune_3, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_3)
+#lavaan::modificationIndices(cfa_out_prune_3, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_3)
+
+```
+
+#### Round 2
+
+```{r cfa_prune_4}
+cfa_string_prune_4 <- '
+  Attain =~ Attain_1 + Attain_5 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 + CostX_2 +  CostX_3 + CostX_4 + CostX_5 + CostX_8 + CostX_9 + CostX_11 + CostX_12 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_8 + GoalX_9 + GoalX_12 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_7 + IntEnj_8 + IntEnj_9
+  Utility =~ Utility_1 + Utility_2 + Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12 + AcadSCX_13
+'
+cfa_out_prune_4 <- lavaan::cfa(cfa_string_prune_4, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_4_res}
+cat(cfa_string_prune_4)
+lavaan::fitMeasures(cfa_out_prune_4, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_4)
+#lavaan::modificationIndices(cfa_out_prune_4, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_4)
+
+```
+
+#### Round 3
+
+Model converged and had decent fit measures. We need to push RMSEA lower and raise the reliability for Attainment (add items back in).
+
+```{r cfa_prune_5}
+cfa_string_prune_5 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_9 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_5 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_8 + GoalX_9 + GoalX_12 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+'
+cfa_out_prune_5 <- lavaan::cfa(cfa_string_prune_5, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_5_res}
+cat(cfa_string_prune_5)
+lavaan::fitMeasures(cfa_out_prune_5, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_5)
+#lavaan::modificationIndices(cfa_out_prune_5, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_5)
+
+```
+
+
+```{r cfa_prune_6}
+cfa_string_prune_6 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_9 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_5 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_8 + GoalX_9 + GoalX_12 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_1 + AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+  STV =~ Attain + IntEnj + Utility + CostX
+'
+cfa_out_prune_6 <- lavaan::cfa(cfa_string_prune_6, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_6_res}
+cat(cfa_string_prune_6)
+lavaan::fitMeasures(cfa_out_prune_6, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_6)
+#lavaan::modificationIndices(cfa_out_prune_6, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_6)
+
+```
+
+#### Round 4
+
+Things are looking good. All alpha and omega reliabilities above 0.70, CFI & TLI > 0.95, SRMR is still above 0.05 but below 0.08, RMSEA is just above 0.08 (get down to 0.06/0.07.)
+
+```{r cfa_prune_7}
+cfa_string_prune_7 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_8 + GoalX_9
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+  STV =~ Attain + IntEnj + Utility + CostX
+'
+cfa_out_prune_7 <- lavaan::cfa(cfa_string_prune_7, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_7_res}
+cat(cfa_string_prune_7)
+lavaan::fitMeasures(cfa_out_prune_7, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_7)
+semTools::reliabilityL2(cfa_out_prune_7, "Difficulty")
+semTools::reliabilityL2(cfa_out_prune_7, "Expectancy")
+semTools::reliabilityL2(cfa_out_prune_7, "GoalsX")
+semTools::reliabilityL2(cfa_out_prune_7, "AcadSCX")
+
+#lavaan::modificationIndices(cfa_out_prune_7, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_7)
+
+```
+
+Drop GoalX and see what happens...
+
+```{r cfa_prune_8}
+cfa_string_prune_8 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+  STV =~ Attain + IntEnj + Utility + CostX
+'
+cfa_out_prune_8 <- lavaan::cfa(cfa_string_prune_8, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_8_res}
+cat(cfa_string_prune_8)
+lavaan::fitMeasures(cfa_out_prune_8, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_8)
+semTools::reliabilityL2(cfa_out_prune_8, "Difficulty")
+semTools::reliabilityL2(cfa_out_prune_8, "Expectancy")
+#semTools::reliabilityL2(cfa_out_prune_8, "GoalsX")
+semTools::reliabilityL2(cfa_out_prune_8, "AcadSCX")
+
+#lavaan::modificationIndices(cfa_out_prune_8, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_8)
+
+```
+
+Go back to Prune 7 and drop STV HOF.
+
+```{r cfa_prune_9}
+cfa_string_prune_9 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_4 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_8 + GoalX_9 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_3 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+'
+cfa_out_prune_9 <- lavaan::cfa(cfa_string_prune_9, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_9_res}
+cat(cfa_string_prune_9)
+lavaan::fitMeasures(cfa_out_prune_9, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_9)
+
+#lavaan::modificationIndices(cfa_out_prune_9, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_9)
+
+```
+
+#### Round 5
+
+Fit statistics decent, try to raise reliability of GoalsX.
+
+Start modifying Prune 9.
+
+```{r cfa_prune_10}
+cfa_string_prune_10 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_6 + GoalX_8 + GoalX_9 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+'
+cfa_out_prune_10 <- lavaan::cfa(cfa_string_prune_10, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_10_res}
+cat(cfa_string_prune_10)
+lavaan::fitMeasures(cfa_out_prune_10, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_10)
+
+#lavaan::modificationIndices(cfa_out_prune_10, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_10)
+
+```
+
+```{r cfa_prune_11}
+cfa_string_prune_11 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_7 + DifficultyX_9
+  GoalsX =~ GoalX_2 + GoalX_3 + GoalX_5 + GoalX_6 + GoalX_8 + GoalX_9 
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+  STV =~ Attain + IntEnj + Utility + CostX
+'
+cfa_out_prune_11 <- lavaan::cfa(cfa_string_prune_11, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_11_res}
+cat(cfa_string_prune_11)
+lavaan::fitMeasures(cfa_out_prune_11, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_11)
+semTools::reliabilityL2(cfa_out_prune_11, "Difficulty")
+semTools::reliabilityL2(cfa_out_prune_11, "Expectancy")
+semTools::reliabilityL2(cfa_out_prune_11, "GoalsX")
+semTools::reliabilityL2(cfa_out_prune_11, "AcadSCX")
+#lavaan::modificationIndices(cfa_out_prune_11, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_11)
+
+```
+
+Now drop GoalsX from Prune 11.
+
+```{r cfa_prune_12}
+cfa_string_prune_12 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_7 + DifficultyX_9
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+  STV =~ Attain + IntEnj + Utility + CostX
+'
+cfa_out_prune_12 <- lavaan::cfa(cfa_string_prune_12, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_12_res}
+cat(cfa_string_prune_12)
+lavaan::fitMeasures(cfa_out_prune_12, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_12)
+semTools::reliabilityL2(cfa_out_prune_12, "Difficulty")
+semTools::reliabilityL2(cfa_out_prune_12, "Expectancy")
+#semTools::reliabilityL2(cfa_out_prune_12, "GoalsX")
+semTools::reliabilityL2(cfa_out_prune_12, "AcadSCX")
+#lavaan::modificationIndices(cfa_out_prune_12, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_12)
+
+```
+
+Now drop HOF from Prune 12.
+
+```{r cfa_prune_13}
+cfa_string_prune_13 <- '
+  Attain =~ Attain_1 + Attain_2 + Attain_5 + Attain_6 + Attain_7 + Attain_11 + Attain_12 + Attain_13
+  CostX =~ CostX_1 +  CostX_3 + CostX_4 + CostX_8 + CostX_9 + CostX_13
+  Difficulty =~ DifficultyX_2 + DifficultyX_3 + DifficultyX_7 + DifficultyX_9
+  Expectancy =~ Expectancy_1 + Expectancy_2 + Expectancy_3 + Expectancy_6
+  IntEnj =~ IntEnj_2 + IntEnj_4 + IntEnj_7 + IntEnj_8
+  Utility =~ Utility_4 + Utility_6 + Utility_7 + Utility_8 + Utility_9 + Utility_10 
+  AcadSCX =~ AcadSCX_2 + AcadSCX_4 + AcadSCX_6 + AcadSCX_7 + AcadSCX_8 + AcadSCX_9 + AcadSCX_12
+'
+cfa_out_prune_13 <- lavaan::cfa(cfa_string_prune_13, data = data_scales_rta_imp, 
+                               ordered = names(data_scales_rta_imp))
+```
+```{r cfa_prune_13_res}
+cat(cfa_string_prune_13)
+lavaan::fitMeasures(cfa_out_prune_13, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea.ci.lower", "rmsea", "rmsea.ci.upper", "srmr"))
+semTools::reliability(cfa_out_prune_13)
+# semTools::reliabilityL2(cfa_out_prune_13, "Difficulty")
+# semTools::reliabilityL2(cfa_out_prune_13, "Expectancy")
+# #semTools::reliabilityL2(cfa_out_prune_13, "GoalsX")
+# semTools::reliabilityL2(cfa_out_prune_13, "AcadSCX")
+#lavaan::modificationIndices(cfa_out_prune_13, sort = TRUE, maximum.number = 20)
+#semPlot::semPaths(cfa_out_prune_13)
+
+```

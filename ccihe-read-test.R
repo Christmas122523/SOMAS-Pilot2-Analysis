@@ -1,0 +1,6 @@
+library("readxl")
+samp_dat <- readxl::read_xlsx("fake_ccihe.xlsx",sheet = "FakeSample")
+pop_dat <- readxl::read_xlsx("fake_ccihe.xlsx",sheet = "Population")
+tmp_tab <- rbind(table(pop_dat$BASIC2018),rep(0,length(unique(pop_dat$BASIC2018))))
+tmp_tab[2,as.numeric(names(table(samp_dat$BASIC2018)))] <- as.vector(table(samp_dat$BASIC2018))
+round(tmp_tab/rowSums(tmp_tab),2)

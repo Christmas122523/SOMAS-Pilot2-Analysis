@@ -1,0 +1,1 @@
+PATH=${RTOOLS40_HOME}usrbin;${PATH}
