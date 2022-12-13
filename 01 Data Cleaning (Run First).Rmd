@@ -1,0 +1,336 @@
+---
+title: "S-SOMAS Pilot 2: Data Reading and Cleaning"
+author: "Matt Dunham and Douglas Whitaker"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(warnings = FALSE)
+
+# https://bookdown.org/yihui/rmarkdown-cookbook/font-color.html
+colorize <- function(x, color) {
+  if (knitr::is_latex_output()) {
+    sprintf("\\textcolor{%s}{%s}", color, x)
+  } else if (knitr::is_html_output()) {
+    sprintf("<span style='color: %s;'>%s</span>", color,
+            x)
+  } else x
+}
+
+set.seed(1603)
+
+```
+
+```{r packages}
+library("readxl")
+library("ggplot2")
+library("reshape2")
+library("tidyverse")
+library("ids")
+library("psych")
+library("matrixStats")
+library("mice")
+library("sjmisc")
+library("naniar")
+library("writexl")
+```
+
+## Reading and Cleaning Data
+
+The file has been renamed so that it appears near the top of the file list alphabetically. The current data file can be found here: https://drive.google.com/drive/u/0/folders/1UGKEH2LJEg0UVyc5qoHkOIYrJIG_c4yv
+
+```{r readdata}
+# The column names are in the top row, but row 2 has information we need to skip
+# We will read the data without column names and then manually add in adjusted column names to ensure items have a uniform name convention of Construct_ItemNumber
+data_raw <- readxl::read_xlsx(path = "data/confidential/Pilot 2 Fall 2021 Data-manual-fixes-tmp.xlsx", skip = 2, col_names = FALSE) 
+data_raw_col_names_adj <- c("ID", "StartDate", "EndDate", "DOB_Month", "DOB_Day", 
+"DOB_Year", "Consent", "GBeliefs_1", "GBeliefs_2", "GBeliefs_3", 
+"Global_1", "Global_2", "Global_3", "Global_4", "Global_5", "Gutt1", 
+"Gutt2", "Gutt3", "Gutt4", "Gutt5", "Attain_1", "Attain_10", 
+"Attain_11", "Attain_12", "Attain_13", "Attain_2", "Attain_3", 
+"Attain_4", "Attain_5", "Attain_6", "Attain_7", "Attain_8", "Attain_9", 
+"CostX_1", "CostX_2", "CostX_3", "CostX_4", "CostX_5", "CostX_6", 
+"CostX_7", "CostX_8", "CostX_9", "CostX_10", "CostX_11", "CostX_12", 
+"CostX_13", "DifficultyX_1", "DifficultyX_2", "DifficultyX_3", 
+"DifficultyX_4", "DifficultyX_5", "DifficultyX_6", "DifficultyX_7", 
+"DifficultyX_8", "DifficultyX_9", "GoalX_1", "GoalX_2", "GoalX_3", 
+"GoalX_4", "GoalX_5", "GoalX_6", "GoalX_7", "GoalX_8", "GoalX_9", 
+"GoalX_10", "GoalX_11", "GoalX_12", "GoalX_13", "Expectancy_1", 
+"Expectancy_2", "Expectancy_3", "Expectancy_4", "Expectancy_5", 
+"Expectancy_6", "IntEnj_1", "IntEnj_2", "IntEnj_3", "IntEnj_4", 
+"IntEnj_5", "IntEnj_6", "IntEnj_7", "IntEnj_8", "IntEnj_9", "Utility_1", 
+"Utility_10", "Utility_11", "Utility_2", "Utility_3", "Utility_4", 
+"Utility_5", "Utility_6", "Utility_7", "Utility_8", "Utility_9", 
+"AcadSCX_1", "AcadSCX_2", "AcadSCX_3", "AcadSCX_4", "AcadSCX_5", 
+"AcadSCX_6", "AcadSCX_7", "AcadSCX_8", "AcadSCX_9", "AcadSCX_10", 
+"AcadSCX_11", "AcadSCX_12", "AcadSCX_13", "AcadSCX_14", "Gender", 
+"Gender_TEXT", "Age", "Hispanic_Latino_Spanish", "Race_Origin", 
+"Race_Origin_TEXT", "Language", "Language_TEXT", "Student", "Student_TEXT", 
+"Taking_Class", "Taking_Class_TEXT", "STAT_Successful?", "Successful_Where", 
+"No?", "No?_TEXT", "First_Gen?", "Grade_Course", "College_GPA?", 
+"College_GPA", "College_GPA_Max", "HS_GPA", "HS_GPA_Max", "Major1_1", 
+"Major1.1", "Major2_1", "Major2.1", "Minor1_1", "Minor1.1", "Minor2_1", 
+"Minor2.1", "Feedback")
+colnames(data_raw) <- data_raw_col_names_adj
+
+COL_SCALE_START <- 21 # start of survey data we're interested in
+COL_SCALE_END <- 108 # end of survey data
+
+# recoding likert responses as numeric and filtering consent
+data_raw <- data_raw %>%
+  dplyr::filter(Consent == "Yes: I agree to participate AND am 18 years or older") %>% # Removing students who did not 
+  dplyr::filter(Age >= 18 | is.na(Age)) %>%
+  dplyr::filter(DOB_Year <= 2003) %>%
+  dplyr::mutate_at(vars(COL_SCALE_START:COL_SCALE_END), ~as.numeric(recode(., "Strongly Disagree" = 1, # Recording Likert responses to numeric as they are in text form
+                                          "Disagree" = 2,
+                                          "Somewhat Disagree" = 3,
+                                          "Neither Agree Nor Disagree" = 4,
+                                          "Somewhat Agree" = 5,
+                                          "Agree" = 6,
+                                          "Strongly Agree" = 7)))
+
+
+#now we determine how much missing data exists in the survey responses
+data_raw <- data_raw %>%
+  mutate(vars = rowVars(as.matrix(data_raw[, COL_SCALE_START:COL_SCALE_END]), na.rm = TRUE)) %>% # finding row variances
+  mutate(n = rowSums(is.na(as.matrix(data_raw[, COL_SCALE_START:COL_SCALE_END])))) # missing data per row
+
+table(data_raw$n) # view of missing data in the survey
+
+data_raw <- data_raw %>% 
+  filter(n < 17) %>% # removing those with > 20% missing survey data (no justification)
+  filter(vars < 6.2 & vars > 0.6) %>% #removing variance that's too large or too small (arbitrary - look at data before and see what looks like a good cutoff)
+  dplyr::select(-vars, -n) # removing variance and missing data count row
+```
+
+It is often handy to have a unique ID for each row in the dataset. We generate these now.
+```{r uniqueID}
+# We generate n unique IDs. The option use_openssl = FALSE ensures that set.seed applies and the results are easily reproducible.
+gen_unique_ids <- function(n, bytes = 5, use_openssl = FALSE, uniqueness = TRUE){
+  tmp_ids <- ids::random_id(n = n, bytes = bytes, use_openssl = use_openssl)
+  if (uniqueness){
+    while (length(unique(tmp_ids)) < n){ # ensure that there are no duplicates (very unlikely)
+      tmp_ids <- ids::random_id(n = n, bytes = bytes, use_openssl = use_openssl)
+    }
+  }
+  return(tmp_ids)
+}
+
+# We append these as a new column at the end so as to not mess up column indices
+data_raw <- cbind(data_raw, data.frame(RandomID = gen_unique_ids(n = nrow(data_raw))))[]
+```
+
+The data has been read. We now begin basic data cleaning.
+```{r recode}
+#COL_SCALE_START <- 21
+#COL_SCALE_END <- 108
+# Recode the text responses as numeric and drop respondents who do not consent
+data_clean1 <- data_raw  # Reading in Data
+#  dplyr::filter(Consent == "Yes: I agree to participate AND am 18 years or older") %>% # Removing students who did not consent
+#  dplyr::mutate_at(vars(COL_SCALE_START:COL_SCALE_END), ~as.numeric(recode(., "Strongly Disagree" = 1, # Recording Likert responses to numeric as they are in text form
+#                                          "Disagree" = 2,
+#                                          "Somewhat Disagree" = 3,
+#                                          "Neither Agree Nor Disagree" = 4,
+#                                         "Somewhat Agree" = 5,
+#                                          "Agree" = 6,
+#                                          "Strongly Agree" = 7)))
+
+data_scales_tmp <- data_clean1[,COL_SCALE_START:COL_SCALE_END] # retain only items that are part of a Likert scale
+rownames(data_scales_tmp) <- data_clean1$RandomID # assign the RandomID to the row name so we can track which rows are dropped later! 
+
+# We know all of the items in data_scales_tmp have the column name Construct_ItemNumber.
+# We use this knowledge to create a vector of scale names.
+scale_names <- unique(gsub(pattern="_[0-9]*", 
+                           replacement = "", 
+                           x = colnames(data_scales_tmp)))
+# This vector is likely not appropriate for graphing, so create two new vectors (manually) that have the same order but are more suitable for printing
+scale_names_short <- c("Attainment", "Costs", "Difficulty", "Goals", "Expectancy", "Interest", "Utility", "AcademicSC")
+scale_names_long <- c("Attainment Value", "Costs (Value)", "Difficulty", "Goal Orientation", "Expectancy", "Interest/Enjoyment Value", "Utility Value", "Academic Self-Concept")
+
+# Then we use this new vector of scale names to create a list that contains vectors of TRUE/FALSE values indicating which items belong to which scales.
+scale_item_assignment <- list()
+for (i in 1:length(scale_names)){
+  scale_item_assignment[[scale_names[i]]] <- grepl(pattern = scale_names[i], x = colnames(data_scales_tmp))
+}
+```
+
+Before reverse coding, we will identify and remove responses with unusually low variability.
+```{r rmlowvar}
+# fill
+# we may need to adjust some variable names below if data_scales_tmp isn't the end result here
+```
+
+We now identify the items to reverse code and reverse code them. There should be 20 items reverse-coded. These have been manually inspected. In future analyses, this should be replaced by a list of items to reverse code that is read from a file. Right now, the items which have been reverse coded are NOT indicated in the name of the column: this is a deliberate choice to make it easier to write the code to run CFA in lavaan. (Note: much this code could likely be moved into the MASDERtools package.)
+```{r reversecode}
+# We use the check.keys feature of the alpha function to identify items to reverse code.
+# Items flagged for reverse coding have a "-" appended to their row name in the $alpha.drop output.
+# So we select only those row names that contain a "-" and append them to a vector.
+# The result is rc_items, a vector containing the items to reverse code.
+rc_items <- c()
+for (i in scale_names){
+  rc_items <- 
+    append(rc_items, 
+           rownames(psych::alpha(x = data_scales_tmp[,scale_item_assignment[[i]]], 
+                    check.keys = TRUE)$alpha.drop)[
+                      grepl(pattern = "-", 
+                            x = rownames(
+                              psych::alpha(
+                                x = data_scales_tmp[,scale_item_assignment[[i]]],
+                                check.keys = TRUE)$alpha.drop))])
+}
+
+# rc_items contains column names with "-" appended.
+# So we drop the "-" from each entry in the vector. 
+# Then we reverse code those columns in the dataset whose names match the identified items
+rc_items2 <- gsub(pattern = "-", replace = "", x = rc_items)
+reverse_func <- function(x, cols, max_val = 7){
+  return((max_val+1) - x)
+}
+# _rc stands for Reverse Coded
+data_scales_rc <- data_scales_tmp
+data_scales_rc[,colnames(data_scales_rc) %in% rc_items2] <- 
+  apply(data_scales_tmp[,colnames(data_scales_rc) %in% rc_items2], 
+        MARGIN = 2, 
+        FUN = reverse_func)
+
+
+```
+
+We need to deal with missing values. For now we drop NA values and retain only complete cases. This section will be replaced with imputation at some point. 
+```{r missingvalues}
+
+gg_miss_var(data_scales_rc) # quick viuals of which items are missing responses and how many
+
+# _nmv stands for No Missing Values
+data_scales_rc_nmv <- na.omit(data_scales_rc) # this will be our data set with NAs removed
+
+data_imp <- as.data.frame(data_scales_rc) # setting up an imputation with our data that has NAs to extract methods needed to impute
+
+imp <- mice(data_imp, maxit = 0) # dummy imputation to find methods
+
+predM2 <- imp$predictorMatrix ### Prediction Matrix extracted from simple imp
+meth2 <- imp$method ### Method of imputation for each variable
+
+
+imp2 <- mice(data_imp, m = 10, predictorMatrix = predM2, method = meth2, print = FALSE) # multiple imputation with 10 imputated data sets
+
+#merging data set with filled responses with the old data set that didn't have any responses imputated
+data_imp_merge <- merge_imputations(
+  data_imp,
+  imp2,
+  data_imp) %>%
+  dplyr::select(-c(1, 2, 4, 6, 7, 9:11, 13:16, 18:23, 25:40, 42:47, 49:51, 53:55, 57:69, 71:77, 79:81, 83:85)) #most questions had at least one missing value, but some didn't. So we remove all columns that weren't imputated from the original data and merge it with the imputated variables
+ 
+imp_names <- names(data_imp_merge) # getting the names of the imputated data
+des_names <- gsub(pattern = "_imp", replace = "", x = imp_names) #imputated data has _imp at the end, so we remove that
+ 
+colnames(data_imp_merge) <- c(des_names) #assigning new column names to data
+  
+#reordering to our original order
+data_imp_merge <- data_imp_merge[, c("Attain_1", "Attain_10", 
+"Attain_11", "Attain_12", "Attain_13", "Attain_2", "Attain_3", 
+"Attain_4", "Attain_5", "Attain_6", "Attain_7", "Attain_8", "Attain_9", 
+"CostX_1", "CostX_2", "CostX_3", "CostX_4", "CostX_5", "CostX_6", 
+"CostX_7", "CostX_8", "CostX_9", "CostX_10", "CostX_11", "CostX_12", 
+"CostX_13", "DifficultyX_1", "DifficultyX_2", "DifficultyX_3", 
+"DifficultyX_4", "DifficultyX_5", "DifficultyX_6", "DifficultyX_7", 
+"DifficultyX_8", "DifficultyX_9", "GoalX_1", "GoalX_2", "GoalX_3", 
+"GoalX_4", "GoalX_5", "GoalX_6", "GoalX_7", "GoalX_8", "GoalX_9", 
+"GoalX_10", "GoalX_11", "GoalX_12", "GoalX_13", "Expectancy_1", 
+"Expectancy_2", "Expectancy_3", "Expectancy_4", "Expectancy_5", 
+"Expectancy_6", "IntEnj_1", "IntEnj_2", "IntEnj_3", "IntEnj_4", 
+"IntEnj_5", "IntEnj_6", "IntEnj_7", "IntEnj_8", "IntEnj_9", "Utility_1", 
+"Utility_10", "Utility_11", "Utility_2", "Utility_3", "Utility_4", 
+"Utility_5", "Utility_6", "Utility_7", "Utility_8", "Utility_9", 
+"AcadSCX_1", "AcadSCX_2", "AcadSCX_3", "AcadSCX_4", "AcadSCX_5", 
+"AcadSCX_6", "AcadSCX_7", "AcadSCX_8", "AcadSCX_9", "AcadSCX_10", 
+"AcadSCX_11", "AcadSCX_12", "AcadSCX_13", "AcadSCX_14")]
+
+```
+
+Now we identify and remove multivariate outliers.
+```{r mvoutliers}
+### FIRST WE DO WITH OUR ROW REMOVED DATA SET
+
+# We could use a cutoff approach, but instead we just remove the 10 most extreme observations
+ alpha_level <- 0.0001
+ mvo_cutoff <- qchisq(p = 1 - alpha_level, df = ncol(data_scales_rc_nmv))
+psych::outlier(data_scales_rc_nmv) # before outliers removed
+ds_rc_nmv_md <- stats::mahalanobis(data_scales_rc_nmv, 
+                                   center = colMeans(data_scales_rc_nmv), 
+                                   cov = cov(data_scales_rc_nmv))
+ mvo_rows <- which(ds_rc_nmv_md > mvo_cutoff)
+NUM_MVO_TO_REMOVE <- 10
+mvo_rows <- which(rank(ds_rc_nmv_md) > nrow(data_scales_rc_nmv) - NUM_MVO_TO_REMOVE)
+print(paste("Number of Multivariate Outliers to be Removed:",length(mvo_rows)))
+# _nmvo stands for No MultiVariate Outliers
+data_scales_rc_nmv_nmvo <- data_scales_rc_nmv[-mvo_rows,]
+psych::outlier(data_scales_rc_nmv_nmvo) # after outliers removed
+
+#### NOW WE DO FOR OUR IMPUTATED DATA SET ####
+
+# We could use a cutoff approach, but instead we just remove the 10 most extreme observations
+ alpha_level <- 0.0001
+ mvo_cutoff <- qchisq(p = 1 - alpha_level, df = ncol(data_imp_merge))
+psych::outlier(data_imp_merge) # before outliers removed
+ds_rc_nmv_md <- stats::mahalanobis(data_imp_merge, 
+                                   center = colMeans(data_imp_merge), 
+                                   cov = cov(data_imp_merge))
+# mvo_rows <- which(ds_rc_nmv_md > mvo_cutoff)
+NUM_MVO_TO_REMOVE <- 10
+mvo_rows <- which(rank(ds_rc_nmv_md) > nrow(data_imp_merge) - NUM_MVO_TO_REMOVE)
+print(paste("Number of Multivariate Outliers to be Removed:",length(mvo_rows)))
+# _nmvo stands for No MultiVariate Outliers
+data_imp_merge_nmvo <- data_imp_merge[-mvo_rows,]
+psych::outlier(data_imp_merge_nmvo) # after outliers removed
+
+```
+
+Now after all of the data cleaning we assemble final data sets that are Read To Analyze (`_rta` suffix). It is possible that the data cleaning steps above might change, but they should always result in data objects named `data_scales_rta` and `data_full_rta` which represent the S-SOMAS Scale Items only and Complete Survey Data, respectively. The values in the columns of `data_scales_rta` should be identical to the corresponding columns of `data_full_rta`. One type of data cleaning that has not yet happened but might is cleaning of demographic information or global items. If/when this happens, all of that should happen ABOVE and the final datasets should be assembled down here. 
+```{r finalize}
+### NOW WE BIND OUR IMPUTATED DATA SET WITH THE DEMO DATA
+
+data_scales_rta_imp <- data_imp_merge_nmvo # the most recent cleaned data becomes the RTA data
+# Now create a full data set with the cleaned RTA scale data. Note again that how this is constructed might change in the future!
+retained_rows <- data_clean1$RandomID %in% rownames(data_scales_rta_imp) # Some rows were dropped above for various reasons - figure out which we need to keep
+data_full_rta_imp <- cbind(data_clean1[retained_rows, 1:(COL_SCALE_START-1)], # Survey time, Consent, Global Items, Guttman Items
+                       data_scales_rta_imp, # S-SOMAS Scale Items
+                       data_clean1[retained_rows,(COL_SCALE_END+1):ncol(data_clean1)]) # Demographic items, unique ID
+
+# # For safety, we can write these objects to files that are not synced to github. Uncomment and change the date if you need to.
+# write.csv(data_scales_rta_imp, file = "data/confidential/data_scales_rta_imp_2022-03-02.csv")
+# write.csv(data_full_rta, file = "data/confidential/data_full_rta_2022-03-02.csv")
+
+# We also remove all previous objects data_* objects so that they aren't accidentally analyzed.
+#rm(list=ls()[grepl(pattern = "data_", x = ls())][!(ls()[grepl(pattern = "data_", x = ls())] %in% c("data_full_rta", "data_scales_rta_imp", "data_scales_rc_nmv"))])
+```
+
+
+```{r finalize2}
+### DO THE SAME FOR THE NA REMOVED DATA
+
+data_scales_rta <- data_scales_rc_nmv_nmvo # the most recent cleaned data becomes the RTA data
+# Now create a full data set with the cleaned RTA scale data. Note again that how this is constructed might change in the future!
+retained_rows <- data_clean1$RandomID %in% rownames(data_scales_rta) # Some rows were dropped above for various reasons - figure out which we need to keep
+data_full_rta <- cbind(data_clean1[retained_rows, 1:(COL_SCALE_START-1)], # Survey time, Consent, Global Items, Guttman Items
+                       data_scales_rta, # S-SOMAS Scale Items
+                       data_clean1[retained_rows,(COL_SCALE_END+1):ncol(data_clean1)]) # Demographic items, unique ID
+
+# # For safety, we can write these objects to files that are not synced to github. Uncomment and change the date if you need to.
+# write.csv(data_scales_rta_imp, file = "data/confidential/data_scales_rta_imp_2022-03-02.csv")
+# write.csv(data_full_rta, file = "data/confidential/data_full_rta_2022-03-02.csv")
+
+# We also remove all previous objects data_* objects so that they aren't accidentally analyzed.
+rm(list=ls()[grepl(pattern = "data_", x = ls())][!(ls()[grepl(pattern = "data_", x = ls())] %in% c("data_full_rta_imp", "data_scales_rta_imp", "data_full_rta", "data_scales_rta"))])
+
+write_xlsx(data_scales_rta_imp, "data/confidential/data_scales_rta_imp_2022-03-10.xlsx")
+write_xlsx(data_full_rta_imp, "data/confidential/data_full_rta_imp_2022-03-10.xlsx")
+write_xlsx(data_scales_rta, "data/confidential/data_scales_rta_2022-03-10.xlsx")
+write_xlsx(data_full_rta, "data/confidential/data_full_rta_2022-03-10.xlsx")
+```
+
+
+At this point, `data_scales_rta` and `data_full_rta` should be safely usable in future analyses. As of right now the column names MIGHT change, but likely not as anything that we would need to change them for can be adjusted through printing.
